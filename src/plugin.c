@@ -38,6 +38,7 @@ typedef struct
 	GtkWidget    *suzgec_giris;
 	GtkWidget    *bos_etiket;
 	GtkWidget    *yigin;          /* GtkStack: tablo ya da bilgi metni */
+	GtkWidget    *menu_oge;       /* Araçlar menüsü girdisi — bitirirken yok edilir */
 	GtkListStore *depo;
 	gint          sayfa_no;
 
@@ -65,6 +66,8 @@ typedef struct
 static CsvEklenti *ek = NULL;
 
 static void tablo_yenile(gboolean zorla);
+static void depoyu_doldur(void);
+static gboolean satir_uyuyor(GcsvSatir *satir, const gchar *arama_kucuk);
 
 /* ---------------------------------------------------------------- yardımcı */
 
@@ -241,6 +244,7 @@ static void hucre_duzenlendi(GtkCellRendererText *olusturucu, gchar *yol_metni,
 	GtkTreeIter iter;
 	GeanyDocument *doc = gecerli_belge();
 	GcsvSatir *satir;
+	const gchar *arama;
 	gint kayit = -1;
 	gchar *satir_metni;
 	guint i;
@@ -279,6 +283,18 @@ static void hucre_duzenlendi(GtkCellRendererText *olusturucu, gchar *yol_metni,
 	for (i = 0; i < ek->sutun_sayisi; i++)
 		gtk_list_store_set(ek->depo, &iter, SUTUN_ILK + i, gcsv_alan(satir, i), -1);
 	ek->dolduruyoruz = FALSE;
+
+	/* Süzgeç açıkken düzenlenen satır artık aramaya uymayabilir. Listeyi
+	 * yeniden kur — yoksa satır listede kalır ve "%u / %u" sayacı yalan söyler. */
+	arama = gtk_entry_get_text(GTK_ENTRY(ek->suzgec_giris));
+	if (*arama != '\0')
+	{
+		gchar *arama_kucuk = g_utf8_strdown(arama, -1);
+
+		if (! satir_uyuyor(satir, arama_kucuk))
+			depoyu_doldur();
+		g_free(arama_kucuk);
+	}
 }
 
 /** Görünümün sütunlarını ve deposunu sıfırdan kurar. */
@@ -525,8 +541,9 @@ static void satir_ekle_cb(GtkButton *dugme, gpointer veri)
 	gint kayit;
 	gint konum;
 	guint i;
+	guint sutun;
 
-	if (doc == NULL || ek->tablo == NULL || ek->tablo->satirlar->len == 0)
+	if (doc == NULL || ek->tablo == NULL)
 		return;
 	if (doc->readonly)
 	{
@@ -535,6 +552,19 @@ static void satir_ekle_cb(GtkButton *dugme, gpointer veri)
 	}
 
 	sci = doc->editor->sci;
+
+	if (ek->tablo->satirlar->len == 0)
+	{
+		/* Boş belge: kaydı başa, satır sonu EKLEMEDEN yaz. Genişlik için
+		 * dayanak yok (sutun_sayisi bir önceki belgeden kalmış olabilir),
+		 * en küçük anlamlı tablo olan iki sütunla açıyoruz. */
+		gchar ilk_kayit[2] = { ek->ayrac, '\0' };
+
+		belgeye_yaz(sci, 0, 0, ilk_kayit, 0);
+		tablo_yenile(TRUE);
+		return;
+	}
+
 	kayit = secili_kayit();
 	if (kayit < 0)
 		kayit = (gint) ek->tablo->satirlar->len - 1;
@@ -544,7 +574,8 @@ static void satir_ekle_cb(GtkButton *dugme, gpointer veri)
 
 	/* Yeni kayıt, tablo genişliğinde boş alanlarla açılır ki sütunlar kaymasın. */
 	metin = g_string_new(eol_metni(sci));
-	for (i = 1; i < ek->sutun_sayisi; i++)
+	sutun = MAX(ek->sutun_sayisi, 1);
+	for (i = 1; i < sutun; i++)
 		g_string_append_c(metin, ek->ayrac);
 
 	belgeye_yaz(sci, konum, konum, metin->str, (guint) kayit + 1);
@@ -593,6 +624,17 @@ static void satir_sil_cb(GtkButton *dugme, gpointer veri)
 		GcsvSatir *onceki = g_ptr_array_index(ek->tablo->satirlar, kayit - 1);
 
 		bas = onceki->son;
+	}
+	else
+	{
+		/* Tek kayıt: önünde yutulacak satır sonu yok, arkasındakini al —
+		 * yoksa belgede boş bir satır kalır. */
+		gint uzunluk = sci_get_length(sci);
+
+		if (son < uzunluk && sci_get_char_at(sci, son) == '\r')
+			son++;
+		if (son < uzunluk && sci_get_char_at(sci, son) == '\n')
+			son++;
 	}
 
 	belgeye_yaz(sci, bas, son, "", (guint) kayit + 1);
@@ -900,6 +942,7 @@ static gboolean eklenti_baslat(GeanyPlugin *plugin, gpointer pdata)
 	gtk_container_add(GTK_CONTAINER(geany->main_widgets->tools_menu), menu_oge);
 	g_signal_connect(menu_oge, "activate", G_CALLBACK(menu_cb), NULL);
 	ui_add_document_sensitive(menu_oge);
+	ek->menu_oge = menu_oge;
 
 	grup = plugin_set_key_group(plugin, "geany_csv", KB_SAYISI, NULL);
 	keybindings_set_item(grup, KB_GOSTER, kb_goster_cb, 0, 0,
@@ -928,6 +971,13 @@ static void eklenti_bitir(GeanyPlugin *plugin, gpointer pdata)
 	no = gtk_notebook_page_num(defter, ek->panel);
 	if (no >= 0)
 		gtk_notebook_remove_page(defter, no);
+
+	/* Menü öğesi yok edilmezse Araçlar menüsünde kalır ve "activate" geri
+	 * çağrısı kapanmış modüle bakar (tıklanınca çöküş); eklenti yeniden
+	 * açılınca da ikinci bir girdi belirir. ui_add_document_sensitive()
+	 * kaydı öğeyle birlikte kendiliğinden düşer. */
+	if (ek->menu_oge != NULL)
+		gtk_widget_destroy(ek->menu_oge);
 
 	if (ek->depo != NULL)
 		g_object_unref(ek->depo);

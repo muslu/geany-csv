@@ -9,6 +9,38 @@
 
 ## ✅ Yapıldı
 
+### 2026-09-18 — denetim ve hata düzeltmeleri (v1.0.0)
+
+**Düzeltilen hatalar**
+- **Eklenti kaldırılınca Araçlar menüsünde sarkan öğe → çöküş.** `eklenti_bitir()`
+  menü öğesini yok etmiyordu; Geany `g_module_close()` yaptıktan sonra menüde kalan
+  girdi tıklanınca süreç **SIGSEGV** ile ölüyordu (A/B ölçüldü: eski `.so` →
+  `CIKIS_KODU=139`, yeni `.so` → öğe menüde yok, Geany yaşıyor). Eklenti kapatılıp
+  yeniden açıldığında menüye ikinci bir girdi eklenmesi de bu düzeltmeyle bitti.
+- **Tek kayıtlı belgede "Satır sil" arta kalan boş satır bırakıyordu.** Önünde
+  yutulacak satır sonu olmadığı için; artık arkasındaki `\r`/`\n` alınıyor.
+  Doğrulandı: silme sonrası editör `satır: 1 / 1`, arabellek tümüyle boş.
+- **Boş belgede "Satır ekle" hiçbir şey yapmıyordu** (`satirlar->len == 0` koruması).
+  Artık ilk kaydı satır sonu eklemeden başa yazıyor; genişlik için dayanak
+  olmadığından (`sutun_sayisi` önceki belgeden kalmış olabilir) iki sütunla açılıyor.
+- **Süzgeç açıkken düzenlenen satır listeden düşmüyordu**; artık eşleşmeyi
+  yitirince liste yeniden kuruluyor, `%u / %u` sayacı doğru kalıyor
+  (ölçüldü: `elma` süzgeci + hücre `muz` yapıldı → `0 / 1`).
+
+**Denetim sonucu (hepsi temiz)**
+- `make CFLAGS="-O2 -g -Werror"`: sıfır uyarı · `make test`: 6/6.
+- ASan + UBSan + `detect_leaks=1` ile birim testler: rapor yok.
+- Ayrıştırıcı fuzz'ı: 20.000 rastgele girdi × 4 ayraç. Sınanan değişmez —
+  her kaydın `bas..son` aralığı tek başına ayrıştırıldığında aynı alanları
+  vermeli (yerinde düzenleme buna dayanıyor) — hiç bozulmadı; aralıklar
+  örtüşmüyor ve dosya sınırını aşmıyor.
+- Gerçek Geany'de (Xvfb + xdotool) uçtan uca: panel, silme, ekleme, hücre
+  düzenleme, süzgeç, eklenti kaldırma. Yöntem: [memory/](memory/MEMORY.md).
+
+**Depo düzeni**
+- `.idea/` izlemeden çıkarıldı, `.gitignore`'a eklendi.
+- `memory/` proje köküne alındı; harness hafıza yolu buraya symlink.
+
 ### 2026-09-18 — ilk sürüm (v1.0.0, commit `0692670`)
 
 **Ortam**
@@ -116,6 +148,6 @@
 - [ ] **gettext:** metinler `_()` içinde ama katalog yok. `po/tr.po` + `LINGUAS`
       eklenip `PLUGIN_SET_TRANSLATABLE_INFO` kullanılabilir. İngilizce arayüz
       isteniyorsa önce kaynak dizgeleri İngilizceye çevirmek gerekir.
-- [ ] **Sürüm etiketi:** `v1.0.0` tag'i + GitHub release.
+- [ ] **GitHub release:** `v1.0.0` etiketi atıldı; release notu henüz yazılmadı.
 - [ ] **geany-plugins** projesine gönderme (waf/autotools derleme dosyası ve
       İngilizce arayüz şart).
