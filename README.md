@@ -4,6 +4,8 @@ Açık `.csv` / `.tsv` belgesini Geany'nin alt panelinde **düzenlenebilir** bir
 olarak gösterir. Hücreyi değiştirdiğinizde değişiklik doğrudan editördeki metne
 yazılır; metni editörden değiştirdiğinizde tablo kendiliğinden tazelenir.
 
+İş takibi: [TODO.md](TODO.md)
+
 ![Ekran görüntüsü](docs/ekran-goruntusu.png)
 
 ## Ne yapar
